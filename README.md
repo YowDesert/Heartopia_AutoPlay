@@ -1,6 +1,6 @@
 # MIDI AutoPlay (PySide6 / Qt6) — AutoPlayUIQT
 
-
+## 要用管理員模式開，不然Heartopia權限比 這個自動點擊的高 會不能點
 
 用 MIDI 檔案自動按鍵的桌面工具（Windows），支援：
 - 選擇 MIDI 資料夾，顯示資料夾內 MIDI 清單
