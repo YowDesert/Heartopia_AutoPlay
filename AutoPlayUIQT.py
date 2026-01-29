@@ -5,11 +5,10 @@
 AutoPlayQt.py (PySide6 / Qt6)
 讀取 MIDI 檔，依照鍵盤對照表自動按鍵（現代化 UI + 資料夾清單 + 播放清單 + 循環/下一首）。
 
-依賴：
-  pip install PySide6 mido pynput
-
-執行：
-  python AutoPlayQt.py
+修復項目:
+1. 播放清單可滾動且顯示編號
+2. MIDI 和設定區域放大
+3. 修復 QThread 錯誤
 """
 import os
 import sys
@@ -258,11 +257,10 @@ class PlayWorker(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MIDI AutoPlay — Modern")
+        self.setWindowTitle("MIDI AutoPlay — Modern (Fixed v2)")
 
-        self.resize(920, 640)
-        self.setMinimumSize(860, 580)
-
+        self.resize(1000, 700)
+        self.setMinimumSize(900, 650)
 
         self.mid_files: list[str] = []
         self.playlist: list[str] = []
@@ -274,18 +272,14 @@ class MainWindow(QMainWindow):
         self._set_std_icon(self.btn_pick_folder, "SP_DialogOpenButton")
         self._set_std_icon(self.btn_refresh,     "SP_BrowserReload")
         self._set_std_icon(self.btn_import,      "SP_FileDialogNewFolder")
-
         self._set_std_icon(self.btn_pick_file,   "SP_FileDialogContentsView")
-
         self._set_std_icon(self.btn_add,         "SP_ArrowRight")
         self._set_std_icon(self.btn_remove,      "SP_TrashIcon")
         self._set_std_icon(self.btn_up,          "SP_ArrowUp")
         self._set_std_icon(self.btn_down,        "SP_ArrowDown")
         self._set_std_icon(self.btn_clear,       "SP_DialogResetButton")
-
         self._set_std_icon(self.btn_start,       "SP_MediaPlay")
         self._set_std_icon(self.btn_stop,        "SP_MediaStop")
-
 
         self.ed_folder.setPlaceholderText("選擇包含 .mid / .midi 的資料夾…")
         self.ed_midi.setPlaceholderText("選擇一個 MIDI 檔案…（或從清單雙擊）")
@@ -309,11 +303,11 @@ class MainWindow(QMainWindow):
         root.setSpacing(14)
 
         # =======================
-        # 1) 上方：資料夾 + 清單（主區域，要大）
+        # 1) 上方：資料夾 + 清單（主區域）
         # =======================
         self.g_folder = QGroupBox("MIDI 資料夾 / 清單 / 播放清單")
         self._card_shadow(self.g_folder, alpha=self._shadow_alpha)
-        root.addWidget(self.g_folder, 5)  # ★給大比例
+        root.addWidget(self.g_folder, 4)  # 給大比例
 
         v_folder = QVBoxLayout(self.g_folder)
         v_folder.setSpacing(10)
@@ -336,6 +330,7 @@ class MainWindow(QMainWindow):
         # splitter: folder list + playlist
         splitter = QSplitter(Qt.Horizontal)
         v_folder.addWidget(splitter, 1)
+        splitter.setChildrenCollapsible(False)
 
         # left: folder midi list
         left_box = QWidget()
@@ -346,7 +341,12 @@ class MainWindow(QMainWindow):
 
         self.list_folder = QListWidget()
         self.list_folder.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.list_folder.setMinimumHeight(360)      # ★清單變大
+        # ★★★ 強制設定垂直滾動條為永遠顯示 ★★★
+        self.list_folder.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.list_folder.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # ★★★ 確保最小和最大高度讓它可以滾動 ★★★
+        # self.list_folder.setMinimumHeight(450)
+        # self.list_folder.setMaximumHeight(9999)  # 移除最大高度限制
         left_layout.addWidget(self.list_folder, 1)
 
         # right: playlist
@@ -354,14 +354,26 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_box)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
-        right_layout.addWidget(QLabel("播放清單（你安排的順序）"))
+        right_layout.addWidget(QLabel("播放清單（你安排的順序，帶編號）"))
 
         self.list_playlist = QListWidget()
         self.list_playlist.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.list_playlist.setMinimumHeight(360)    # ★清單變大
+        # ★★★ 強制設定垂直滾動條為永遠顯示 ★★★
+        self.list_playlist.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.list_playlist.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # ★★★ 確保最小和最大高度讓它可以滾動 ★★★
+        # self.list_playlist.setMinimumHeight(450)
+        # self.list_playlist.setMaximumHeight(9999)  # 移除最大高度限制
         right_layout.addWidget(self.list_playlist, 1)
 
-        # playlist controls (保持你原本按鈕)
+        # ✅ 讓清單跟著版面自適應，滾輪/捲軸一定會有範圍
+        for lw in (self.list_folder, self.list_playlist):
+            lw.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            lw.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+            lw.setHorizontalScrollMode(QAbstractItemView.ScrollPerItem)
+            lw.setFocusPolicy(Qt.StrongFocus)  # 保證滑鼠滾輪事件能吃到
+
+        # playlist controls
         rowp = QHBoxLayout()
         right_layout.addLayout(rowp)
 
@@ -385,10 +397,9 @@ class MainWindow(QMainWindow):
         splitter.addWidget(right_box)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([650, 450])  # ★預設比例
 
         # =======================
-        # 2) 中間：Bottom bar（目前 MIDI + 設定 + 開始停止）
+        # 2) 中間：目前 MIDI + 設定（放大）
         # =======================
         bottom = QHBoxLayout()
         bottom.setSpacing(12)
@@ -397,84 +408,110 @@ class MainWindow(QMainWindow):
         # 左：目前 MIDI
         self.g_cur = QGroupBox("目前 MIDI")
         self.g_cur.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.g_cur.setMaximumHeight(90)
+        self.g_cur.setMinimumHeight(100)
         self._card_shadow(self.g_cur, alpha=self._shadow_alpha)
         bottom.addWidget(self.g_cur, 3)
 
         rowc = QHBoxLayout(self.g_cur)
-        rowc.setContentsMargins(12, 10, 12, 10)
+        rowc.setContentsMargins(14, 12, 14, 12)
         rowc.setSpacing(10)
-        rowc.addWidget(QLabel("檔案："))
+        rowc.addWidget(QLabel("檔案："), 0)
         self.ed_midi = QLineEdit("")
-
+        self.ed_midi.setMinimumHeight(36)
         rowc.addWidget(self.ed_midi, 1)
         self.btn_pick_file = QPushButton("選擇檔案")
+        self.btn_pick_file.setMinimumHeight(36)
         rowc.addWidget(self.btn_pick_file)
 
-        # 右：設定
+        # 右：設定（放大）
         self.g_set = QGroupBox("設定")
         self.g_set.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.g_set.setMaximumHeight(110)
+        self.g_set.setMinimumHeight(160)
         self._card_shadow(self.g_set, alpha=self._shadow_alpha)
         bottom.addWidget(self.g_set, 2)
 
         grid = QGridLayout(self.g_set)
-        grid.setContentsMargins(12, 10, 12, 10)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(6)
+        grid.setContentsMargins(14, 12, 14, 12)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
 
+        label_font = QFont()
+        label_font.setPointSize(10)
+        
+        lbl_tr = QLabel("移調 (Tr):")
+        lbl_tr.setFont(label_font)
         self.sp_transpose = QSpinBox()
         self.sp_transpose.setRange(-60, 60)
         self.sp_transpose.setValue(0)
+        self.sp_transpose.setMinimumHeight(32)
+        self.sp_transpose.setMinimumWidth(80)
 
+        lbl_vel = QLabel("Velocity ≥")
+        lbl_vel.setFont(label_font)
         self.sp_velocity = QSpinBox()
         self.sp_velocity.setRange(0, 127)
         self.sp_velocity.setValue(1)
+        self.sp_velocity.setMinimumHeight(32)
+        self.sp_velocity.setMinimumWidth(80)
 
+        lbl_count = QLabel("倒數 (秒):")
+        lbl_count.setFont(label_font)
         self.sp_countdown = QDoubleSpinBox()
         self.sp_countdown.setRange(0, 30)
         self.sp_countdown.setSingleStep(0.5)
         self.sp_countdown.setValue(3.0)
+        self.sp_countdown.setMinimumHeight(32)
+        self.sp_countdown.setMinimumWidth(80)
 
         self.chk_auto_tr = QCheckBox("Auto Transpose")
         self.chk_auto_tr.setChecked(True)
+        self.chk_auto_tr.setFont(label_font)
 
         self.chk_release = QCheckBox("結束放鍵")
         self.chk_release.setChecked(True)
+        self.chk_release.setFont(label_font)
 
         self.chk_auto_next = QCheckBox("自動下一首")
         self.chk_auto_next.setChecked(True)
+        self.chk_auto_next.setFont(label_font)
 
         self.chk_dark = QCheckBox("深色")
         self.chk_dark.setChecked(dark)
+        self.chk_dark.setFont(label_font)
         self.chk_dark.toggled.connect(self._toggle_dark)
 
-        grid.addWidget(QLabel("Tr"), 0, 0)
+        grid.addWidget(lbl_tr, 0, 0, Qt.AlignRight)
         grid.addWidget(self.sp_transpose, 0, 1)
-        grid.addWidget(QLabel("Vel ≥"), 0, 2)
+        grid.addWidget(lbl_vel, 0, 2, Qt.AlignRight)
         grid.addWidget(self.sp_velocity, 0, 3)
-        grid.addWidget(QLabel("倒數"), 0, 4)
+        grid.addWidget(lbl_count, 0, 4, Qt.AlignRight)
         grid.addWidget(self.sp_countdown, 0, 5)
-        grid.addWidget(self.chk_dark, 0, 6, alignment=Qt.AlignRight)
 
         grid.addWidget(self.chk_auto_tr,   1, 0, 1, 2)
         grid.addWidget(self.chk_release,   1, 2, 1, 2)
         grid.addWidget(self.chk_auto_next, 1, 4, 1, 2)
+        grid.addWidget(self.chk_dark,      2, 0, 1, 2, Qt.AlignLeft)
 
         self.btn_start = QPushButton("▶ 開始")
         self.btn_start.setObjectName("primary")
+        self.btn_start.setMinimumHeight(40)
+        self.btn_start.setMinimumWidth(100)
+        
         self.btn_stop = QPushButton("■ 停止")
         self.btn_stop.setObjectName("danger")
         self.btn_stop.setEnabled(False)
+        self.btn_stop.setMinimumHeight(40)
+        self.btn_stop.setMinimumWidth(100)
 
-        grid.addWidget(self.btn_start, 1, 6)
-        grid.addWidget(self.btn_stop,  2, 6)
+        grid.addWidget(self.btn_start, 2, 4, 1, 1)
+        grid.addWidget(self.btn_stop,  2, 5, 1, 1)
 
         # =======================
-        # 3) 下方：Log（可縮）
+        # 3) 下方：Log
         # =======================
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        self.log.setMinimumHeight(120)
         root.addWidget(self.log, 1)
 
         sb = QStatusBar()
@@ -503,7 +540,7 @@ class MainWindow(QMainWindow):
         self.btn_start.clicked.connect(self.start)
         self.btn_stop.clicked.connect(self.stop)
 
-        self._log("使用方式：...\n")
+        self._log("✅ 系統就緒！請選擇 MIDI 資料夾或檔案開始播放\n")
 
     # ---------- Theme ----------
     def _theme_qss(self, dark: bool) -> str:
@@ -525,6 +562,7 @@ class MainWindow(QMainWindow):
                     padding: 0 8px;
                     color: #F9FAFB;
                     font-weight: 700;
+                    font-size: 14px;
                 }
 
                 QLabel { color: #D1D5DB; }
@@ -532,9 +570,10 @@ class MainWindow(QMainWindow):
                 QLineEdit, QSpinBox, QDoubleSpinBox {
                     background: #0B1220;
                     border: 1px solid rgba(255,255,255,0.10);
-                    border-radius: 12px;
-                    padding: 9px 12px;
+                    border-radius: 10px;
+                    padding: 8px 12px;
                     selection-background-color: #2563EB;
+                    font-size: 13px;
                 }
                 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
                     border: 1px solid rgba(59,130,246,0.85);
@@ -548,10 +587,11 @@ class MainWindow(QMainWindow):
                     outline: none;
                 }
                 QListWidget::item {
-                    padding: 10px 10px;
-                    border-radius: 12px;
-                    margin: 4px;
+                    padding: 12px 12px;
+                    border-radius: 10px;
+                    margin: 3px;
                     color: #E5E7EB;
+                    font-size: 13px;
                 }
                 QListWidget::item:hover { background: rgba(255,255,255,0.06); }
                 QListWidget::item:selected {
@@ -563,8 +603,9 @@ class MainWindow(QMainWindow):
                 QPushButton {
                     background: rgba(255,255,255,0.04);
                     border: 1px solid rgba(255,255,255,0.10);
-                    border-radius: 12px;
-                    padding: 9px 12px;
+                    border-radius: 10px;
+                    padding: 8px 14px;
+                    font-size: 13px;
                 }
                 QPushButton:hover { background: rgba(255,255,255,0.08); }
                 QPushButton:pressed { background: rgba(255,255,255,0.12); }
@@ -575,6 +616,7 @@ class MainWindow(QMainWindow):
                     border: 1px solid #3B82F6;
                     color: white;
                     font-weight: 700;
+                    font-size: 14px;
                 }
                 QPushButton#primary:hover { background: #2563EB; border-color: #2563EB; }
                 QPushButton#danger {
@@ -582,8 +624,25 @@ class MainWindow(QMainWindow):
                     border: 1px solid #EF4444;
                     color: white;
                     font-weight: 700;
+                    font-size: 14px;
                 }
                 QPushButton#danger:hover { background: #DC2626; border-color: #DC2626; }
+
+                QCheckBox {
+                    spacing: 8px;
+                    font-size: 13px;
+                }
+                QCheckBox::indicator {
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 4px;
+                    border: 1px solid rgba(255,255,255,0.20);
+                    background: #0B1220;
+                }
+                QCheckBox::indicator:checked {
+                    background: #3B82F6;
+                    border-color: #3B82F6;
+                }
 
                 QPlainTextEdit {
                     background: #060A14;
@@ -598,22 +657,32 @@ class MainWindow(QMainWindow):
                 QSplitter::handle {
                     background: rgba(255,255,255,0.05);
                     border-radius: 6px;
+                    width: 6px;
+                    margin: 2px;
                 }
                 QSplitter::handle:hover { background: rgba(255,255,255,0.10); }
 
                 QScrollBar:vertical {
-                    background: transparent;
-                    width: 10px;
-                    margin: 6px 2px 6px 2px;
+                    background: rgba(255,255,255,0.03);
+                    width: 14px;
+                    margin: 0px;
+                    border-radius: 7px;
                 }
                 QScrollBar::handle:vertical {
-                    background: rgba(255,255,255,0.16);
-                    border-radius: 5px;
-                    min-height: 28px;
+                    background: rgba(255,255,255,0.20);
+                    border-radius: 7px;
+                    min-height: 30px;
+                    margin: 2px;
                 }
-                QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.24); }
-                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+                QScrollBar::handle:vertical:hover { 
+                    background: rgba(255,255,255,0.30); 
+                }
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { 
+                    height: 0px; 
+                }
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { 
+                    background: transparent; 
+                }
             """
         else:
             return """
@@ -634,14 +703,16 @@ class MainWindow(QMainWindow):
                     padding: 0 8px;
                     color: #111827;
                     font-weight: 700;
+                    font-size: 14px;
                 }
 
                 QLineEdit, QSpinBox, QDoubleSpinBox {
                     background: #FFFFFF;
                     border: 1px solid rgba(17,24,39,0.12);
-                    border-radius: 12px;
-                    padding: 9px 12px;
+                    border-radius: 10px;
+                    padding: 8px 12px;
                     selection-background-color: #0A84FF;
+                    font-size: 13px;
                 }
                 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
                     border: 1px solid rgba(10,132,255,0.85);
@@ -655,10 +726,11 @@ class MainWindow(QMainWindow):
                     outline: none;
                 }
                 QListWidget::item {
-                    padding: 10px 10px;
-                    border-radius: 12px;
-                    margin: 4px;
+                    padding: 12px 12px;
+                    border-radius: 10px;
+                    margin: 3px;
                     color: #111827;
+                    font-size: 13px;
                 }
                 QListWidget::item:hover { background: rgba(0,0,0,0.04); }
                 QListWidget::item:selected {
@@ -670,8 +742,9 @@ class MainWindow(QMainWindow):
                 QPushButton {
                     background: #FFFFFF;
                     border: 1px solid rgba(17,24,39,0.12);
-                    border-radius: 12px;
-                    padding: 9px 12px;
+                    border-radius: 10px;
+                    padding: 8px 14px;
+                    font-size: 13px;
                 }
                 QPushButton:hover { background: rgba(0,0,0,0.03); }
                 QPushButton:pressed { background: rgba(0,0,0,0.06); }
@@ -682,6 +755,7 @@ class MainWindow(QMainWindow):
                     border: 1px solid #0A84FF;
                     color: white;
                     font-weight: 800;
+                    font-size: 14px;
                 }
                 QPushButton#primary:hover { background: #0077EE; border-color: #0077EE; }
 
@@ -690,8 +764,25 @@ class MainWindow(QMainWindow):
                     border: 1px solid #FF3B30;
                     color: white;
                     font-weight: 800;
+                    font-size: 14px;
                 }
                 QPushButton#danger:hover { background: #E6352B; border-color: #E6352B; }
+
+                QCheckBox {
+                    spacing: 8px;
+                    font-size: 13px;
+                }
+                QCheckBox::indicator {
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 4px;
+                    border: 1px solid rgba(17,24,39,0.20);
+                    background: #FFFFFF;
+                }
+                QCheckBox::indicator:checked {
+                    background: #0A84FF;
+                    border-color: #0A84FF;
+                }
 
                 QPlainTextEdit {
                     background: #FFFFFF;
@@ -706,22 +797,32 @@ class MainWindow(QMainWindow):
                 QSplitter::handle {
                     background: rgba(0,0,0,0.06);
                     border-radius: 6px;
+                    width: 6px;
+                    margin: 2px;
                 }
                 QSplitter::handle:hover { background: rgba(0,0,0,0.10); }
 
                 QScrollBar:vertical {
-                    background: transparent;
-                    width: 10px;
-                    margin: 6px 2px 6px 2px;
+                    background: rgba(0,0,0,0.03);
+                    width: 14px;
+                    margin: 0px;
+                    border-radius: 7px;
                 }
                 QScrollBar::handle:vertical {
-                    background: rgba(0,0,0,0.18);
-                    border-radius: 5px;
-                    min-height: 28px;
+                    background: rgba(0,0,0,0.20);
+                    border-radius: 7px;
+                    min-height: 30px;
+                    margin: 2px;
                 }
-                QScrollBar::handle:vertical:hover { background: rgba(0,0,0,0.25); }
-                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+                QScrollBar::handle:vertical:hover { 
+                    background: rgba(0,0,0,0.30); 
+                }
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { 
+                    height: 0px; 
+                }
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { 
+                    background: transparent; 
+                }
             """
 
     def _apply_theme(self, dark: bool):
@@ -752,11 +853,9 @@ class MainWindow(QMainWindow):
         QApplication.setPalette(pal)
         self.setStyleSheet(self._theme_qss(dark))
 
-        # 陰影在淺色比較重、深色比較輕會更自然
         self._shadow_alpha = 45 if not dark else 80
 
     def _load_theme_pref(self) -> bool:
-        # 預設淺色 False
         s = QSettings("AutoPlayQt", "MIDI-AutoPlay")
         return bool(s.value("dark_mode", False, type=bool))
 
@@ -768,12 +867,9 @@ class MainWindow(QMainWindow):
     def _toggle_dark(self, checked: bool):
         self._apply_theme(checked)
         self._save_theme_pref(checked)
-
-        # 可選：只更新陰影（不重建 UI）
         self._card_shadow(self.g_folder, alpha=self._shadow_alpha)
         self._card_shadow(self.g_cur, alpha=self._shadow_alpha)
         self._card_shadow(self.g_set, alpha=self._shadow_alpha)
-
 
     def _log(self, s: str):
         self.log.appendPlainText(s)
@@ -815,7 +911,6 @@ class MainWindow(QMainWindow):
         items = self.list_folder.selectedItems()
         if not items:
             return
-        # 以第一個選到的當目前路徑
         row = self.list_folder.row(items[0])
         if 0 <= row < len(self.mid_files):
             self.ed_midi.setText(self.mid_files[row])
@@ -869,7 +964,6 @@ class MainWindow(QMainWindow):
             return
         self.ed_midi.setText(path)
 
-        # 同步 folder list
         folder = os.path.dirname(path)
         if folder and os.path.isdir(folder):
             self.ed_folder.setText(folder)
@@ -880,11 +974,13 @@ class MainWindow(QMainWindow):
                     self.list_folder.setCurrentRow(i)
                     break
 
-    # -------- playlist --------
+    # -------- playlist （★ 加上編號）--------
     def refresh_playlist_ui(self):
+        """刷新播放清單，顯示順序編號"""
         self.list_playlist.clear()
-        for p in self.playlist:
-            self.list_playlist.addItem(QListWidgetItem(os.path.basename(p)))
+        for idx, p in enumerate(self.playlist, start=1):
+            display_name = f"[{idx}] {os.path.basename(p)}"
+            self.list_playlist.addItem(QListWidgetItem(display_name))
 
     def add_selected_to_playlist(self):
         rows = sorted({self.list_folder.row(i) for i in self.list_folder.selectedItems()})
@@ -896,7 +992,7 @@ class MainWindow(QMainWindow):
         for r in rows:
             if 0 <= r < len(self.mid_files):
                 p = self.mid_files[r]
-                if p not in self.playlist:  # 不重複
+                if p not in self.playlist:
                     self.playlist.append(p)
                     added += 1
 
@@ -971,9 +1067,15 @@ class MainWindow(QMainWindow):
         return -1
 
     def start(self):
-        if self.worker_thread and self.worker_thread.isRunning():
-            QMessageBox.information(self, "正在播放", "目前正在播放中。")
-            return
+        # ★★★ 修復 QThread 錯誤：檢查 thread 是否有效 ★★★
+        try:
+            if self.worker_thread and self.worker_thread.isRunning():
+                QMessageBox.information(self, "正在播放", "目前正在播放中。")
+                return
+        except RuntimeError:
+            # Thread 已被刪除，重設為 None
+            self.worker_thread = None
+            self.worker = None
 
         path = self.ed_midi.text().strip().strip('"')
         if not path or not os.path.exists(path):
@@ -993,7 +1095,6 @@ class MainWindow(QMainWindow):
                         idx = i
                         break
         else:
-            # 沒有播放清單：用 folder list 或 single
             base = os.path.basename(path).lower()
             idx = -1
             for i, fp in enumerate(self.mid_files):
@@ -1008,11 +1109,17 @@ class MainWindow(QMainWindow):
                 mode = "folder"
                 play_list = list(self.mid_files)
 
+        # ✅ 顯示這次會用哪種模式播放
+        mode_name = {"playlist":"播放清單", "folder":"資料夾順播", "single":"單曲"}.get(mode, mode)
+        self._log(f"🎬 播放模式：{mode_name}（起始第 {idx+1} 首 / 共 {len(play_list)} 首）")
+        self.statusBar().showMessage(f"播放模式：{mode_name}")
+
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.statusBar().showMessage("播放中…")
         self._log("▶ 開始播放")
 
+        # ★★★ 創建新的 thread，不重用舊的 ★★★
         self.worker_thread = QThread()
         self.worker = PlayWorker(mode=mode, play_list=play_list, start_index=idx, settings=self._settings())
         self.worker.moveToThread(self.worker_thread)
@@ -1028,18 +1135,18 @@ class MainWindow(QMainWindow):
         self.worker.select_folder_index.connect(self._select_folder_row)
         self.worker.select_playlist_index.connect(self._select_playlist_row)
 
+        # ★★★ 當 thread 結束時，重設變數 ★★★
         self.worker_thread.finished.connect(self._on_play_finished)
+        self.worker_thread.finished.connect(lambda: setattr(self, 'worker_thread', None))
+        self.worker_thread.finished.connect(lambda: setattr(self, 'worker', None))
+        
         self.worker_thread.start()
 
     def _set_std_icon(self, btn: QPushButton, name: str):
-        """
-        name: QStyle.StandardPixmap 的成員名稱字串，例如 'SP_DialogOpenButton'
-        若該名稱在此 Qt 版本不存在，會自動略過，不會炸。
-        """
         try:
             sp = getattr(QStyle.StandardPixmap, name)
         except Exception:
-            return  # 此版本沒有這個 icon，直接不設
+            return
         btn.setIcon(self.style().standardIcon(sp))
 
     def _card_shadow(self, widget: QWidget, alpha: int = 70):
@@ -1078,7 +1185,6 @@ class MainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
 
-    # Qt6 通常已支援 DPI，但這行可讓縮放更自然
     try:
         app.setFont(QFont("Segoe UI", 10))
     except Exception:
